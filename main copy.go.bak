@@ -1,0 +1,118 @@
+package main
+
+import (
+	"bufio"
+	"encoding/csv"
+	"io"
+	"log"
+	"os"
+	"sync"
+)
+
+// type Person struct {
+// 	Firstname string `json:"firstname"`
+// 	Lastname  string `json:"lastname"`
+// 	// Address   *Address `json:"address,omitempty"`
+// }
+
+// type Address struct {
+// 	City  string `json:"city"`
+// 	State string `json:"state"`
+// }
+
+type vesselPositionReading struct {
+	Imo       int64   `json:"imo" csv:"imo"`
+	Timestamp string  `json:"timestamp" csv:"timestamp"`
+	Lat       float64 `json:"lat" csv:"lat"`
+	Long      float64 `json:"long" csv:"long"`
+}
+
+func processLine(lockLock *sync.RWMutex, fileLocks map[string]*sync.Mutex, jobs <-chan []string) {
+
+	for line := range jobs {
+
+		fileLocks[line[0]].Lock()
+
+		csvFileOutFile, _ := os.OpenFile("out/"+line[0]+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+		writer := csv.NewWriter(csvFileOutFile)
+
+		err := writer.Write(line)
+		checkError("Cannot write to file", err)
+		writer.Flush()
+		csvFileOutFile.Close()
+
+		lockLock.Lock()
+		fileLocks[line[0]].Unlock()
+		lockLock.Unlock()
+	}
+
+}
+
+func main() {
+
+	var lockLock = &sync.RWMutex{}
+
+	jobs := make(chan []string, 100)
+
+	var fileLocks = map[string]*sync.Mutex{}
+
+	for w := 1; w <= 10; w++ {
+		go processLine(lockLock, fileLocks, jobs)
+	}
+
+	csvFile, _ := os.Open("input/VD_2013_01.txt")
+
+	defer csvFile.Close()
+	reader := csv.NewReader(bufio.NewReader(csvFile))
+	reader.Comma = '\t'
+	// var readings []vesselPositionReading
+
+	for {
+		line, error := reader.Read()
+		if error == io.EOF {
+			break
+		} else if error != nil {
+			log.Fatal(error)
+		}
+
+		// imoInt, _ := strconv.ParseInt(line[0], 0, 64)
+		// fmt.Println(line[2])
+		// latFloat, _ := strconv.ParseFloat(line[2], 64)
+		// longFloat, _ := strconv.ParseFloat(line[3], 64)
+
+		// readings = append(readings, vesselPositionReading{
+		// 	Imo:       imoInt,
+		// 	Timestamp: line[1],
+		// 	Lat:       latFloat,
+		// 	Long:      longFloat,
+		// })
+
+		lockLock.Lock()
+		if _, ok := fileLocks[line[0]]; ok == false {
+			fileLocks[line[0]] = &sync.Mutex{}
+		}
+		lockLock.Unlock()
+
+		jobs <- line
+
+	}
+	// peopleJSON, _ := json.Marshal(readings)
+	// fmt.Println(string(peopleJSON))
+
+	// files, err := ioutil.ReadDir("./input")
+
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// for _, file := range files {
+	// 	fmt.Println(file.Name())
+	// }
+}
+
+func checkError(message string, err error) {
+	if err != nil {
+		log.Fatal(message, err)
+	}
+}
